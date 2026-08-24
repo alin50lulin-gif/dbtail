@@ -14,24 +14,24 @@
 // The format of the configuration prefix is configurable as `log_line_prefix` in postgresql.conf
 // using the following format specifiers:
 //
-//   %a = application name
-//   %u = user name
-//   %d = database name
-//   %r = remote host and port
-//   %h = remote host
-//   %p = process ID
-//   %t = timestamp without milliseconds
-//   %m = timestamp with milliseconds
-//   %i = command tag
-//   %e = SQL state
-//   %c = session ID
-//   %l = session line number
-//   %s = session start timestamp
-//   %v = virtual transaction ID
-//   %x = transaction ID (0 if none)
-//   %q = stop here in non-session
-//        processes
-//   %% = '%'
+//	%a = application name
+//	%u = user name
+//	%d = database name
+//	%r = remote host and port
+//	%h = remote host
+//	%p = process ID
+//	%t = timestamp without milliseconds
+//	%m = timestamp with milliseconds
+//	%i = command tag
+//	%e = SQL state
+//	%c = session ID
+//	%l = session line number
+//	%s = session start timestamp
+//	%v = virtual transaction ID
+//	%x = transaction ID (0 if none)
+//	%q = stop here in non-session
+//	     processes
+//	%% = '%'
 //
 // For example, the prefix format for the lines above is:
 // %t [%p-%l] %q%u@%d
@@ -46,10 +46,12 @@
 // The query may span multiple lines; continuations are indented. For example:
 //
 // 2017-11-07 01:43:39 UTC [3542-7] postgres@test LOG:  duration: 15.577 ms  statement: SELECT * FROM test
-//		WHERE id=1;
+//
+//	WHERE id=1;
 package postgresql
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -69,9 +71,11 @@ const (
 	defaultPrefix = "%t [%p-%l] %u@%d"
 	// Regex string that matches the header of a slow query log line
 	slowQueryHeader = `\s*(?P<level>[A-Z0-9]+):\s+duration: (?P<duration>[0-9\.]+) ms\s+(?:(statement)|(execute \S+)): `
+	planHeader      = `\s*(?P<level>[A-Z0-9]+):\s+duration: (?P<duration>[0-9\.]+) ms\s+plan:\s*`
 )
 
 var slowQueryHeaderRegex = &parsers.ExtRegexp{regexp.MustCompile(slowQueryHeader)}
+var planHeaderRegex = &parsers.ExtRegexp{regexp.MustCompile(planHeader)}
 
 // prefixField represents a specific format specifier in the log_line_prefix string
 // (see module comment for details).
@@ -85,7 +89,7 @@ func (p *prefixField) ReString() string {
 }
 
 var prefixValues = map[string]prefixField{
-	"%a": prefixField{Name: "application", Pattern: "\\S+"},
+	"%a": prefixField{Name: "application", Pattern: ".*?"},
 	"%u": prefixField{Name: "user", Pattern: "\\S+"},
 	"%d": prefixField{Name: "database", Pattern: "\\S+"},
 	"%r": prefixField{Name: "host_port", Pattern: "\\S+"},
@@ -94,9 +98,10 @@ var prefixValues = map[string]prefixField{
 	"%t": prefixField{Name: "timestamp", Pattern: timestampRe},
 	"%m": prefixField{Name: "timestamp_millis", Pattern: timestampRe},
 	"%n": prefixField{Name: "timestamp_unix", Pattern: "\\d+"},
-	"%i": prefixField{Name: "command_tag", Pattern: "\\S+"},
+	"%i": prefixField{Name: "command_tag", Pattern: ".*?"},
 	"%e": prefixField{Name: "sql_state", Pattern: "\\S+"},
-	"%c": prefixField{Name: "session_id", Pattern: "\\d+"},
+	"%c": prefixField{Name: "session_id", Pattern: "[0-9a-fA-F.]+"},
+	"%Q": prefixField{Name: "query_id", Pattern: "-?\\d+"},
 	"%l": prefixField{Name: "session_line_number", Pattern: "\\d+"},
 	"%s": prefixField{Name: "session_start", Pattern: timestampRe},
 	"%v": prefixField{Name: "virtual_transaction_id", Pattern: "\\S+"},
@@ -142,7 +147,7 @@ func (p *Parser) ProcessLines(lines <-chan string, send chan<- event.Event, pref
 			prefix = prefixRegex.FindString(line)
 			line = strings.TrimPrefix(line, prefix)
 		}
-		if !isContinuationLine(line) && len(groupedLines) > 0 {
+		if p.pgPrefixRegex.FindString(line) != "" && len(groupedLines) > 0 {
 			// If the line we just parsed is the start of a new log statement,
 			// send off the previously accumulated group.
 			rawEvents <- groupedLines
@@ -194,12 +199,21 @@ func (p *Parser) handleEvent(rawEvent []string) *event.Event {
 
 	addFieldsToEvent(generalMeta, ev)
 
-	// Now, parse the slow query header
+	// Now, parse either a regular slow-query header or auto_explain's JSON plan header.
 	match, query, slowQueryMeta := parsePrefix(slowQueryHeaderRegex, suffix)
-
 	if !match {
-		logrus.WithField("line", firstLine).Debug("didn't find slow query header, skipping line")
-		return nil
+		match, query, slowQueryMeta = parsePrefix(planHeaderRegex, suffix)
+		if !match {
+			logrus.WithField("line", firstLine).Debug("didn't find slow query or plan header, skipping line")
+			return nil
+		}
+		plan := query
+		for _, line := range rawEvent[1:] {
+			plan += "\n" + strings.TrimLeft(line, " \t")
+		}
+		plan = strings.TrimSpace(plan)
+		ev.Data["plan"] = plan
+		query, slowQueryMeta = parsePlan(plan, slowQueryMeta)
 	}
 
 	if rawDuration, ok := slowQueryMeta["duration"]; ok {
@@ -208,12 +222,18 @@ func (p *Parser) handleEvent(rawEvent []string) *event.Event {
 	} else {
 		logrus.WithField("query", query).Debug("Failed to find query duration in log line")
 	}
+	if queryID, ok := slowQueryMeta["query_id"]; ok {
+		ev.Data["query_id"] = queryID
+	}
 
 	// Finally, concatenate the remaining text to form the query, and attempt to
 	// normalize it.
-	for _, line := range rawEvent[1:] {
-		query += " " + strings.TrimLeft(line, " \t")
+	if _, isPlan := ev.Data["plan"]; !isPlan {
+		for _, line := range rawEvent[1:] {
+			query += " " + strings.TrimLeft(line, " \t")
+		}
 	}
+	query = strings.TrimSpace(query)
 	normalizedQuery := normalizer.NormalizeQuery(query)
 
 	ev.Data["query"] = query
@@ -228,8 +248,19 @@ func (p *Parser) handleEvent(rawEvent []string) *event.Event {
 	return ev
 }
 
-func isContinuationLine(line string) bool {
-	return strings.HasPrefix(line, "\t")
+func parsePlan(plan string, fields map[string]string) (string, map[string]string) {
+	decoder := json.NewDecoder(strings.NewReader(plan))
+	decoder.UseNumber()
+	var doc map[string]interface{}
+	if err := decoder.Decode(&doc); err != nil {
+		logrus.WithError(err).Debug("failed to parse auto_explain JSON plan")
+		return "", fields
+	}
+	query, _ := doc["Query Text"].(string)
+	if id, ok := doc["Query Identifier"].(json.Number); ok {
+		fields["query_id"] = id.String()
+	}
+	return query, fields
 }
 
 // addFieldsToEvent takes a map of key-value metadata extracted from a log
@@ -240,7 +271,7 @@ func addFieldsToEvent(fields map[string]string, ev *event.Event) {
 		// Try to convert values to integer types where sensible, and extract
 		// timestamp for event
 		switch k {
-		case "session_id", "pid", "session_line_number":
+		case "pid", "session_line_number":
 			if typed, err := strconv.Atoi(v); err == nil {
 				ev.Data[k] = typed
 			} else {
@@ -290,5 +321,5 @@ func buildPrefixRegexp(prefixFormat string) (*parsers.ExtRegexp, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &parsers.ExtRegexp{re}, nil
+	return &parsers.ExtRegexp{regexp.MustCompile("^" + re.String())}, nil
 }

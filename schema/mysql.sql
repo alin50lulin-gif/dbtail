@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS dbtail.mysql_slow_log
+CREATE TABLE IF NOT EXISTS dbtail.mysql_slow_log_{ip}_{port}
 (
     `_time` DateTime,
     `_date` Date default toDate(`_time`),

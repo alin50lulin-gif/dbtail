@@ -92,7 +92,7 @@ APIHost = http://localhost:8123/
 [Required Options]
 ParserName = mysql
 LogFiles = /var/log/mysql/mariadb-slow.log
-Dataset = dbtail.mysql_slow_log
+Dataset = dbtail.mysql_slow_log_{ip}_{port}
 ```
 
 #### Extra options for MySQL parser
@@ -125,7 +125,7 @@ cat schema/mysql.sql | clickhouse-client --multiline
 
 Once schema is prepared you can run binary from CLI with MySQL parser:
 ```
-dbtail --dataset='dbtail.mysql_slow_log' --parser=mysql --file=/var/log/mysql/mysql-slow.log
+dbtail --dataset='dbtail.mysql_slow_log_{ip}_{port}' --parser=mysql --file=/var/log/mysql/mysql-slow.log
 ```
 
 Or with Nginx parser:
@@ -145,7 +145,7 @@ service dbtail start
 If you want to load files you already have into dbtail. You can use the same call as mentioned above but with extra parameter `--backfill`
 
 ```
-dbtail --dataset='dbtail.mysql_slow_log' --parser=mysql --file=/var/log/mysql/mysql-slow.log --backfill
+dbtail --dataset='dbtail.mysql_slow_log_{ip}_{port}' --parser=mysql --file=/var/log/mysql/mysql-slow.log --backfill
 ```
 ...this will load `mysql-slow.log` file into DBtail and end the process.
 
@@ -165,4 +165,3 @@ Also make sure ClickHouse port (which is `8123` by default) is open with your fi
 
 
 For more advanced usage, options, and the ability to scrub or drop specific fields, see [documentation](https://honeycomb.io/docs/send-data/agent).
-

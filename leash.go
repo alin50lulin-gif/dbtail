@@ -76,8 +76,8 @@ func run(options GlobalOptions) {
 		prefixRegex = &parsers.ExtRegexp{regexp.MustCompile(options.PrefixRegex)}
 	}
 
-	// get our lines channel from which to read log lines
-	var linesChans []chan string
+	// get a stream containing one independent line channel per logfile
+	var linesChans <-chan chan string
 	var err error
 	tc := tail.Config{
 		Paths:   options.Reqs.LogFiles,
@@ -85,9 +85,9 @@ func run(options GlobalOptions) {
 		Options: options.Tail,
 	}
 	if options.TailSample {
-		linesChans, err = tail.GetSampledEntries(ctx, tc, options.SampleRate)
+		linesChans, err = tail.WatchSampledEntries(ctx, tc, options.SampleRate)
 	} else {
-		linesChans, err = tail.GetEntries(ctx, tc)
+		linesChans, err = tail.WatchEntries(ctx, tc)
 	}
 	if err != nil {
 		logrus.WithFields(logrus.Fields{"err": err}).Fatal(
@@ -111,10 +111,10 @@ func run(options GlobalOptions) {
 		}
 	}()
 
-	// for each channel we got back from tail.GetEntries, spin up a parser.
+	// Spin up an independent parser for every logfile stream, including files discovered after startup.
 	parsersWG := sync.WaitGroup{}
 	responsesWG := sync.WaitGroup{}
-	for _, lines := range linesChans {
+	for lines := range linesChans {
 		// get our parser
 		parser, opts := getParserAndOptions(options)
 		if parser == nil {
