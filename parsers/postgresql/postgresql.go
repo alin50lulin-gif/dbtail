@@ -225,6 +225,16 @@ func (p *Parser) handleEvent(rawEvent []string) *event.Event {
 		}
 		plan = strings.TrimSpace(plan)
 		ev.Data["plan"] = plan
+		// Query Text is emitted before the usually much larger Plan object.
+		// Read only that top-level value first so ignored health checks do not
+		// pay the cost of decoding the complete JSON execution plan.
+		if planQuery, ok := extractPlanQuery(plan); ok {
+			query = strings.TrimSpace(planQuery)
+			if p.ignoreQueryRegex != nil && p.ignoreQueryRegex.MatchString(query) {
+				logrus.WithField("query", query).Debug("ignoring PostgreSQL plan query matching configured regex")
+				return nil
+			}
+		}
 		query, slowQueryMeta = parsePlan(plan, slowQueryMeta)
 	}
 
@@ -262,6 +272,32 @@ func (p *Parser) handleEvent(rawEvent []string) *event.Event {
 	}
 
 	return ev
+}
+
+func extractPlanQuery(plan string) (string, bool) {
+	decoder := json.NewDecoder(strings.NewReader(plan))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return "", false
+	}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return "", false
+		}
+		if key == "Query Text" {
+			var query string
+			if err := decoder.Decode(&query); err != nil {
+				return "", false
+			}
+			return query, true
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 func parsePlan(plan string, fields map[string]string) (string, map[string]string) {

@@ -251,8 +251,9 @@ func TestIgnoreQueryRegex(t *testing.T) {
 		`2017-11-07 01:43:39 UTC [3542-8] postgres@test LOG:  duration: 0.011 ms  plan:`,
 		`  {`,
 		`    "Query Text": "SELECT 1",`,
-		`    "Plan": {"Node Type": "Result"},`,
-		`    "Query Identifier": 123`,
+		// Deliberately malformed remainder proves the ignored fast path does
+		// not decode the complete execution plan.
+		`    "Plan": {not valid JSON`,
 		`  }`,
 	}
 	assert.Nil(t, p.handleEvent(ignoredPlan))
@@ -261,6 +262,12 @@ func TestIgnoreQueryRegex(t *testing.T) {
 		`2017-11-07 01:43:39 UTC [3542-9] postgres@test LOG:  duration: 0.011 ms  statement: SELECT 10;`,
 	}
 	assert.NotNil(t, p.handleEvent(notIgnored))
+}
+
+func TestExtractPlanQuery(t *testing.T) {
+	query, ok := extractPlanQuery(`{"Query Text":"SELECT \"quoted\"","Plan":{"Node Type":"Result"}}`)
+	assert.True(t, ok)
+	assert.Equal(t, `SELECT "quoted"`, query)
 }
 
 func TestInvalidIgnoreQueryRegex(t *testing.T) {
