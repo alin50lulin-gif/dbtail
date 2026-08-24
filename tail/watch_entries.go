@@ -165,14 +165,19 @@ func watchEntries(ctx context.Context, conf Config, scanInterval time.Duration) 
 							continue
 						}
 						watched.known[file] = true
-						if watched.active != nil {
-							watched.active.StopAtEOF()
-							watched.active.Cleanup()
-						}
+						previous := watched.active
 						watched.activeFile = file
 						watched.active = tailer
 						if !sendStream(ctx, streams, lines) {
+							tailer.Stop()
+							tailer.Cleanup()
 							return
+						}
+						// Do not make delivery of the new active logfile wait for a
+						// potentially large previous logfile to drain. The old tailer
+						// closes its descriptor independently after reaching EOF.
+						if previous != nil {
+							go stopAtEOFAndCleanup(previous)
 						}
 					}
 				}
@@ -180,6 +185,13 @@ func watchEntries(ctx context.Context, conf Config, scanInterval time.Duration) 
 		}
 	}()
 	return streams, nil
+}
+
+func stopAtEOFAndCleanup(tailer *hptail.Tail) {
+	if err := tailer.StopAtEOF(); err != nil {
+		logrus.WithError(err).Warn("failed to stop previous logfile at EOF")
+	}
+	tailer.Cleanup()
 }
 
 // WatchSampledEntries applies tail sampling independently to every file stream.

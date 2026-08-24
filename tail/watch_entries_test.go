@@ -77,6 +77,43 @@ func TestWatchEntriesDiscoversTimestampRotatedFiles(t *testing.T) {
 	waitForMissing(t, secondState)
 }
 
+func TestWatchEntriesDoesNotBlockNewFileWhilePreviousDrains(t *testing.T) {
+	tmpdir, err := ioutil.TempDir(os.TempDir(), "watch-entries-backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+
+	first := filepath.Join(tmpdir, "postgresql-2026-08-24_152203.log")
+	if err := ioutil.WriteFile(first, []byte("old backlog line\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	streams, err := watchEntries(ctx, Config{
+		Paths: []string{filepath.Join(tmpdir, "postgresql-*.log")},
+		Type:  RotateStyleSyslog,
+		Options: TailOptions{
+			ReadFrom:  "last",
+			StateFile: filepath.Join(tmpdir, "states") + string(os.PathSeparator),
+		},
+	}, 20*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Receive the old stream but deliberately leave its backlog unread.
+	receiveStream(t, streams)
+	second := filepath.Join(tmpdir, "postgresql-2026-08-24_154920.log")
+	if err := ioutil.WriteFile(second, []byte("new current line\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	secondStream := receiveStream(t, streams)
+	if line := receiveLine(t, secondStream); line != "new current line" {
+		t.Fatalf("expected current logfile without waiting for old backlog, got %q", line)
+	}
+}
+
 func receiveStream(t *testing.T, streams <-chan chan string) chan string {
 	select {
 	case stream := <-streams:
