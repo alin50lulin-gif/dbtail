@@ -22,12 +22,14 @@ CREATE TABLE IF NOT EXISTS dbtail.dw_pg_sql_logs_{ip}_{port}
 
     `duration` Float64,
     `query` String,
+    `query_text` String ALIAS query,
     `normalized_query` String,
     `tables` String,
     `comments` String,
 
     `query_id` String DEFAULT '',
     `plan` String DEFAULT '',
+    `event_time` DateTime ALIAS `_time`,
 
     `ref_tables` Array(String)
         MATERIALIZED arrayDistinct(
