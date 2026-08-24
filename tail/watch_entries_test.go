@@ -2,6 +2,7 @@ package tail
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -58,6 +59,7 @@ func TestWatchEntriesDiscoversTimestampRotatedFiles(t *testing.T) {
 		t.Fatalf("expected second line, got %q", line)
 	}
 	waitForClosed(t, firstStream)
+	waitForOffset(t, filepath.Join(stateDir, stringsTrimLogSuffix(filepath.Base(first))+".leash.state"), int64(len("first line\n")))
 
 	for _, logfile := range []string{first, second} {
 		stateFile := filepath.Join(stateDir, stringsTrimLogSuffix(filepath.Base(logfile))+".leash.state")
@@ -165,6 +167,21 @@ func waitForMissing(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("state file %s was not removed", path)
+}
+
+func waitForOffset(t *testing.T, path string, expected int64) {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		content, err := ioutil.ReadFile(path)
+		if err == nil {
+			var state State
+			if json.Unmarshal(content, &state) == nil && state.Offset == expected {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("state file %s did not reach offset %d", path, expected)
 }
 
 func stringsTrimLogSuffix(name string) string {

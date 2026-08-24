@@ -80,6 +80,8 @@ type Tail struct {
 
 	file   *os.File
 	reader *bufio.Reader
+	// lastOffset preserves the final readable position after file is closed.
+	lastOffset int64
 
 	watcher watch.FileWatcher
 	changes *watch.FileChanges
@@ -140,21 +142,22 @@ func TailFile(filename string, config Config) (*Tail, error) {
 // it may readed one line in the chan(tail.Lines),
 // so it may lost one line.
 func (tail *Tail) Tell() (offset int64, err error) {
+	tail.lk.Lock()
+	defer tail.lk.Unlock()
 	if tail.file == nil {
-		return
+		return tail.lastOffset, nil
 	}
 	offset, err = tail.file.Seek(0, os.SEEK_CUR)
 	if err != nil {
 		return
 	}
-
-	tail.lk.Lock()
-	defer tail.lk.Unlock()
 	if tail.reader == nil {
+		tail.lastOffset = offset
 		return
 	}
 
 	offset -= int64(tail.reader.Buffered())
+	tail.lastOffset = offset
 	return
 }
 
@@ -178,7 +181,15 @@ func (tail *Tail) close() {
 }
 
 func (tail *Tail) closeFile() {
+	tail.lk.Lock()
+	defer tail.lk.Unlock()
 	if tail.file != nil {
+		if offset, err := tail.file.Seek(0, os.SEEK_CUR); err == nil {
+			if tail.reader != nil {
+				offset -= int64(tail.reader.Buffered())
+			}
+			tail.lastOffset = offset
+		}
 		tail.file.Close()
 		tail.file = nil
 	}
@@ -187,8 +198,7 @@ func (tail *Tail) closeFile() {
 func (tail *Tail) reopen() error {
 	tail.closeFile()
 	for {
-		var err error
-		tail.file, err = OpenFile(tail.Filename)
+		file, err := OpenFile(tail.Filename)
 		if err != nil {
 			if os.IsNotExist(err) {
 				tail.Logger.Printf("Waiting for %s to appear...", tail.Filename)
@@ -202,6 +212,9 @@ func (tail *Tail) reopen() error {
 			}
 			return fmt.Errorf("Unable to open file %s: %s", tail.Filename, err)
 		}
+		tail.lk.Lock()
+		tail.file = file
+		tail.lk.Unlock()
 		break
 	}
 	return nil
@@ -380,6 +393,8 @@ func (tail *Tail) waitForChanges() error {
 }
 
 func (tail *Tail) openReader() {
+	tail.lk.Lock()
+	defer tail.lk.Unlock()
 	if tail.MaxLineSize > 0 {
 		// add 2 to account for newline characters
 		tail.reader = bufio.NewReaderSize(tail.file, tail.MaxLineSize+2)
@@ -393,6 +408,8 @@ func (tail *Tail) seekEnd() error {
 }
 
 func (tail *Tail) seekTo(pos SeekInfo) error {
+	tail.lk.Lock()
+	defer tail.lk.Unlock()
 	_, err := tail.file.Seek(pos.Offset, pos.Whence)
 	if err != nil {
 		return fmt.Errorf("Seek error on %s: %s", tail.Filename, err)
