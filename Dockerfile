@@ -8,8 +8,8 @@ ENV GOPATH /gopath
 ENV GOBIN /gopath/bin
 ENV PATH $PATH:$GOROOT/bin:$GOPATH/bin
 
-WORKDIR /gopath/src/github.com/Altinity/dbtail
-COPY . /gopath/src/github.com/Altinity/dbtail/
+WORKDIR /gopath/src/github.com/alin50lulin-gif/dbtail
+COPY . /gopath/src/github.com/alin50lulin-gif/dbtail/
 
 # Does the package, build, and cleanup as one step to keep size small
 RUN apk add --update \
@@ -21,7 +21,7 @@ RUN apk add --update \
     && ver=$(git rev-parse --short HEAD) \
     && git clean -f \
     && rm -rf .git \
-    && go get -ldflags="-X main.BuildID=${ver}" github.com/Altinity/dbtail \
+    && go get -ldflags="-X main.BuildID=${ver}" github.com/alin50lulin-gif/dbtail \
     && apk del git go \
     && rm -rf /var/cache/apk/*
 

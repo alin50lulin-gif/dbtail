@@ -15,11 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Altinity/libclick-go"
 	"github.com/Sirupsen/logrus"
 	"github.com/honeycombio/dynsampler-go"
-	"github.com/Altinity/libclick-go"
 	"github.com/honeycombio/urlshaper"
 
+	"github.com/alin50lulin-gif/dbtail/parsers/mysql"
+	"github.com/alin50lulin-gif/dbtail/parsers/mysqlaudit"
 	"github.com/honeycombio/honeytail/event"
 	"github.com/honeycombio/honeytail/parsers"
 	"github.com/honeycombio/honeytail/parsers/arangodb"
@@ -30,8 +32,6 @@ import (
 	"github.com/honeycombio/honeytail/parsers/postgresql"
 	"github.com/honeycombio/honeytail/parsers/regex"
 	"github.com/honeycombio/honeytail/tail"
-	"github.com/Altinity/dbtail/parsers/mysql"
-    "github.com/Altinity/dbtail/parsers/mysqlaudit"
 )
 
 // actually go and be leashy
@@ -225,9 +225,9 @@ func getParserAndOptions(options GlobalOptions) (parsers.Parser, interface{}) {
 		opts = &options.MySQL
 		opts.(*mysql.Options).NumParsers = int(options.NumSenders)
 	case "mysqlaudit":
-        parser = &mysqlaudit.Parser{}
-        opts = &options.MySQLAudit
-        opts.(*mysqlaudit.Options).NumParsers = int(options.NumSenders)
+		parser = &mysqlaudit.Parser{}
+		opts = &options.MySQLAudit
+		opts.(*mysqlaudit.Options).NumParsers = int(options.NumSenders)
 	case "postgresql":
 		opts = &options.PostgreSQL
 		parser = &postgresql.Parser{}

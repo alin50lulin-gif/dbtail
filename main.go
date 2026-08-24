@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/Altinity/libclick-go"
+	"github.com/Sirupsen/logrus"
 	flag "github.com/jessevdk/go-flags"
 
+	"github.com/alin50lulin-gif/dbtail/parsers/mysql"
+	"github.com/alin50lulin-gif/dbtail/parsers/mysqlaudit"
 	"github.com/honeycombio/honeytail/httime"
 	"github.com/honeycombio/honeytail/parsers/arangodb"
 	"github.com/honeycombio/honeytail/parsers/htjson"
@@ -22,8 +24,6 @@ import (
 	"github.com/honeycombio/honeytail/parsers/postgresql"
 	"github.com/honeycombio/honeytail/parsers/regex"
 	"github.com/honeycombio/honeytail/tail"
-	"github.com/Altinity/dbtail/parsers/mysql"
-	"github.com/Altinity/dbtail/parsers/mysqlaudit"
 )
 
 // BuildID is set by Travis CI
@@ -93,10 +93,10 @@ type GlobalOptions struct {
 }
 
 type RequiredOptions struct {
-	ParserName string   `short:"p" long:"parser" description:"Parser module to use. Use --list to list available options."`
+	ParserName string `short:"p" long:"parser" description:"Parser module to use. Use --list to list available options."`
 	//WriteKey   string   `short:"k" long:"writekey" description:"Team write key"`
-	LogFiles   []string `short:"f" long:"file" description:"Log file(s) to parse. Use '-' for STDIN, use this flag multiple times to tail multiple files, or use a glob (/path/to/foo-*.log)"`
-	Dataset    string   `short:"d" long:"dataset" description:"Name of the dataset"`
+	LogFiles []string `short:"f" long:"file" description:"Log file(s) to parse. Use '-' for STDIN, use this flag multiple times to tail multiple files, or use a glob (/path/to/foo-*.log)"`
+	Dataset  string   `short:"d" long:"dataset" description:"Name of the dataset"`
 }
 
 type OtherModes struct {
@@ -170,13 +170,12 @@ func main() {
 	addParserDefaultOptions(&options)
 	sanityCheckOptions(&options)
 
-    if err := libclick.VerifyApiHost(libclick.Config{
-		APIHost:  options.APIHost,
+	if err := libclick.VerifyApiHost(libclick.Config{
+		APIHost: options.APIHost,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "Could not connect to ClickHouse server: ", err)
 		os.Exit(1)
 	}
-
 
 	run(options)
 }
@@ -257,9 +256,9 @@ func sanityCheckOptions(options *GlobalOptions) {
 		usage()
 		os.Exit(1)
 	/*case options.Reqs.WriteKey == "" || options.Reqs.WriteKey == "NULL":
-		fmt.Println("Write key required to be specified with the --writekey flag.")
-		usage()
-		os.Exit(1)*/
+	fmt.Println("Write key required to be specified with the --writekey flag.")
+	usage()
+	os.Exit(1)*/
 	case len(options.Reqs.LogFiles) == 0:
 		fmt.Println("Log file name or '-' required to be specified with the --file flag.")
 		usage()
