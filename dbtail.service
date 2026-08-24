@@ -1,0 +1,13 @@
+[Unit]
+Description=ClickHouse log tailer dbtail by Altinity
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/dbtail -c /etc/dbtail/dbtail.conf
+KillMode=process
+Restart=on-failure
+User=root
+Group=root
+
+[Install]
+Alias=dbtail dbtail.service
