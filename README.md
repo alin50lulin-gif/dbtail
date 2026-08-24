@@ -1,8 +1,18 @@
 # dbtail
 
-`dbtail` is [Altinity](https://altinity.com)'s agent for ingesting log file data into ClickHouse and making it available for exploration. Its favorite format is **JSON**, but understands how to parse a range of other well-known log formats.
+`dbtail` is an agent for parsing log files and ingesting the resulting events into ClickHouse. It supports JSON as well as several database and web-server log formats.
 
-`dbtail` is based on `honeytail` tool see [here](https://github.com/honeycombio/honeytail) and [its documentation](https://honeycomb.io/docs/send-data/agent/)
+## Project Background
+
+`dbtail` is a maintained, extended fork of [Altinity/clicktail](https://github.com/Altinity/clicktail). The original `clicktail` project was itself developed from [honeycombio/honeytail](https://github.com/honeycombio/honeytail), but `clicktail` has not received updates for a long time.
+
+The project lineage is:
+
+```text
+honeytail -> clicktail -> dbtail
+```
+
+`dbtail` continues development with compatibility fixes for current log formats, bug fixes, and ongoing maintenance while preserving the original parsing and ClickHouse ingestion behavior.
 
 ## Supported Parsers
 
