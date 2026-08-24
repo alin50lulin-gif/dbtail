@@ -233,3 +233,38 @@ func TestAutoExplainJSONPlan(t *testing.T) {
 		assert.Equal(t, 0.007, ev.Data["duration"])
 	}
 }
+
+func TestIgnoreQueryRegex(t *testing.T) {
+	p := Parser{}
+	err := p.Init(&Options{
+		LogLinePrefix:    `%t [%p-%l] %u@%d`,
+		IgnoreQueryRegex: `(?i)^\s*select\s+1\s*;?\s*$`,
+	})
+	assert.NoError(t, err)
+
+	ignoredStatement := []string{
+		`2017-11-07 01:43:39 UTC [3542-7] postgres@test LOG:  duration: 0.011 ms  statement: SELECT 1;`,
+	}
+	assert.Nil(t, p.handleEvent(ignoredStatement))
+
+	ignoredPlan := []string{
+		`2017-11-07 01:43:39 UTC [3542-8] postgres@test LOG:  duration: 0.011 ms  plan:`,
+		`  {`,
+		`    "Query Text": "SELECT 1",`,
+		`    "Plan": {"Node Type": "Result"},`,
+		`    "Query Identifier": 123`,
+		`  }`,
+	}
+	assert.Nil(t, p.handleEvent(ignoredPlan))
+
+	notIgnored := []string{
+		`2017-11-07 01:43:39 UTC [3542-9] postgres@test LOG:  duration: 0.011 ms  statement: SELECT 10;`,
+	}
+	assert.NotNil(t, p.handleEvent(notIgnored))
+}
+
+func TestInvalidIgnoreQueryRegex(t *testing.T) {
+	p := Parser{}
+	err := p.Init(&Options{IgnoreQueryRegex: `[`})
+	assert.Error(t, err)
+}

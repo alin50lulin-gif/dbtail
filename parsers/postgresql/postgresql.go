@@ -109,12 +109,14 @@ var prefixValues = map[string]prefixField{
 }
 
 type Options struct {
-	LogLinePrefix string `long:"log_line_prefix" description:"Format string for PostgreSQL log line prefix"`
+	LogLinePrefix    string `long:"log_line_prefix" description:"Format string for PostgreSQL log line prefix"`
+	IgnoreQueryRegex string `long:"ignore_query_regex" description:"Do not send PostgreSQL events whose complete query text matches this regular expression"`
 }
 
 type Parser struct {
 	// regex to match the log_line_prefix format specified by the user
-	pgPrefixRegex *parsers.ExtRegexp
+	pgPrefixRegex    *parsers.ExtRegexp
+	ignoreQueryRegex *regexp.Regexp
 }
 
 func (p *Parser) Init(options interface{}) (err error) {
@@ -126,7 +128,17 @@ func (p *Parser) Init(options interface{}) (err error) {
 		logLinePrefixFormat = conf.LogLinePrefix
 	}
 	p.pgPrefixRegex, err = buildPrefixRegexp(logLinePrefixFormat)
-	return err
+	if err != nil {
+		return err
+	}
+	p.ignoreQueryRegex = nil
+	if ok && conf.IgnoreQueryRegex != "" {
+		p.ignoreQueryRegex, err = regexp.Compile(conf.IgnoreQueryRegex)
+		if err != nil {
+			return fmt.Errorf("invalid PostgreSQL ignore_query_regex: %v", err)
+		}
+	}
+	return nil
 }
 
 func (p *Parser) ProcessLines(lines <-chan string, send chan<- event.Event, prefixRegex *parsers.ExtRegexp) {
@@ -234,6 +246,10 @@ func (p *Parser) handleEvent(rawEvent []string) *event.Event {
 		}
 	}
 	query = strings.TrimSpace(query)
+	if p.ignoreQueryRegex != nil && p.ignoreQueryRegex.MatchString(query) {
+		logrus.WithField("query", query).Debug("ignoring PostgreSQL query matching configured regex")
+		return nil
+	}
 	normalizedQuery := normalizer.NormalizeQuery(query)
 
 	ev.Data["query"] = query
