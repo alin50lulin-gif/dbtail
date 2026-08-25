@@ -8,8 +8,10 @@ CH_CLIENT=${CH_CLIENT:-clickhouse-client}
 CH_HOST=${CH_HOST:-127.0.0.1}
 CH_PORT=${CH_PORT:-9000}
 CH_DATABASE=${CH_DATABASE:-dbtail}
-CH_USER=${CH_USER:-default}
-CH_PASSWORD_FILE=${CH_PASSWORD_FILE:-}
+# Replace these placeholders with the actual ClickHouse monitoring credentials,
+# preferably by setting CH_USER and CH_PASSWORD in the local cron environment.
+CH_USER=${CH_USER:-dbtail}
+CH_PASSWORD=${CH_PASSWORD:-password}
 LAG_THRESHOLD_SECONDS=${LAG_THRESHOLD_SECONDS:-600}
 TABLE_REGEX=${TABLE_REGEX:-'^(dw_pg_sql_logs_|mysql_slow_log_)[A-Za-z0-9_]+$'}
 ALERT_COMMAND=${ALERT_COMMAND:-}
@@ -34,17 +36,10 @@ client_args=(
     --host "$CH_HOST"
     --port "$CH_PORT"
     --user "$CH_USER"
+    --password "$CH_PASSWORD"
     --database "$CH_DATABASE"
     --format TSVRaw
 )
-
-if [ -n "$CH_PASSWORD_FILE" ]; then
-    if [ ! -r "$CH_PASSWORD_FILE" ]; then
-        echo "ERROR: password file is not readable: $CH_PASSWORD_FILE" >&2
-        exit 2
-    fi
-    client_args+=(--password "$(tr -d '\r\n' < "$CH_PASSWORD_FILE")")
-fi
 
 run_query() {
     "$CH_CLIENT" "${client_args[@]}" --query "$1"

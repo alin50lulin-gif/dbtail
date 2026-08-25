@@ -218,7 +218,7 @@ It automatically discovers `dw_pg_sql_logs_*` and `mysql_slow_log_*` tables and 
 CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
 ```
 
-Optional settings include `CH_HOST`, `CH_PORT`, `CH_USER`, `CH_PASSWORD_FILE`, `TABLE_REGEX`, `SYSLOG_ALERT`, and `ALERT_COMMAND`. The custom alert command receives the complete alert text as its first argument.
+The script contains the placeholders `CH_USER=dbtail` and `CH_PASSWORD=password`. Replace them with the actual ClickHouse credentials through the local environment before deployment. Optional overrides include `CH_HOST`, `CH_PORT`, `CH_DATABASE`, `CH_USER`, `CH_PASSWORD`, `TABLE_REGEX`, `SYSLOG_ALERT`, and `ALERT_COMMAND`. The custom alert command receives the complete alert text as its first argument.
 
 Example cron entry, running once per minute:
 
@@ -445,7 +445,7 @@ install -m 0755 scripts/check-dbtail-lag.sh /usr/local/bin/dbtail-check-lag
 CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
 ```
 
-可选参数包括 `CH_HOST`、`CH_PORT`、`CH_USER`、`CH_PASSWORD_FILE`、`TABLE_REGEX`、`SYSLOG_ALERT` 和 `ALERT_COMMAND`。自定义告警命令会通过第一个参数收到完整告警内容。
+脚本内提供占位值 `CH_USER=dbtail` 和 `CH_PASSWORD=password`，部署时必须通过本机环境变量替换成 ClickHouse 的真实账号密码。可通过 `CH_HOST`、`CH_PORT`、`CH_DATABASE`、`CH_USER`、`CH_PASSWORD`、`TABLE_REGEX`、`SYSLOG_ALERT` 和 `ALERT_COMMAND` 覆盖配置。自定义告警命令会通过第一个参数收到完整告警内容。
 
 每分钟检查一次的 crontab 示例：
 
