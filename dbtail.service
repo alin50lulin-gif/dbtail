@@ -1,13 +1,18 @@
 [Unit]
-Description=ClickHouse log tailer dbtail by Altinity
-After=network.target
+Description=ClickHouse log tailer DBtail update by IDMS
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
 ExecStart=/usr/bin/dbtail -c /etc/dbtail/dbtail.conf
-KillMode=process
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=30
 Restart=on-failure
+RestartSec=5
 User=root
 Group=root
 
 [Install]
-Alias=dbtail dbtail.service
+WantedBy=multi-user.target
