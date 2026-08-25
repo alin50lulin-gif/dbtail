@@ -35,7 +35,7 @@ type TailOptions struct {
 	ReadFrom  string `long:"read_from" description:"Location in the file from which to start reading. Values: beginning, end, last. Last picks up where it left off, if the file has not been rotated, otherwise beginning. When --backfill is set, it will override this option=beginning" default:"last"`
 	Stop      bool   `long:"stop" description:"Stop reading the file after reaching the end rather than continuing to tail. When --backfill is set, it will override this option=true"`
 	Poll      bool   `long:"poll" description:"use poll instead of inotify to tail files"`
-	StateFile string `long:"statefile" description:"File in which to store the last read position. Defaults to a file in /tmp named $logfile.leash.state. If tailing multiple files, default is forced."`
+	StateFile string `long:"statefile" description:"File or directory used to store the last read position. For multiple files or LogFiles globs, use a directory ending in '/'; dbtail creates it when missing. Do not append a wildcard. Defaults to $TMPDIR/$logfile.leash.state."`
 }
 
 // Statefile mechanics when ReadFrom is 'last'

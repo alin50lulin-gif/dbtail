@@ -250,6 +250,12 @@ func addParserDefaultOptions(options *GlobalOptions) {
 }
 
 func sanityCheckOptions(options *GlobalOptions) {
+	if err := validateConfiguration(options); err != nil {
+		fmt.Printf("Invalid configuration: %s\n", err)
+		usage()
+		os.Exit(1)
+	}
+
 	switch {
 	case options.Reqs.ParserName == "":
 		fmt.Println("Parser required to be specified with the --parser flag.")
@@ -315,6 +321,47 @@ func sanityCheckOptions(options *GlobalOptions) {
 		usage()
 		os.Exit(1)
 	}
+}
+
+func validateConfiguration(options *GlobalOptions) error {
+	if strings.Contains(options.APIHost, "](") || strings.HasPrefix(strings.TrimSpace(options.APIHost), "[") {
+		return fmt.Errorf("APIHost must be a plain URL, not Markdown link syntax")
+	}
+
+	for _, logFile := range options.Reqs.LogFiles {
+		if strings.Contains(logFile, `\*`) || strings.Contains(logFile, `\?`) {
+			return fmt.Errorf("LogFiles uses filesystem glob syntax; do not escape '*' or '?' in %q", logFile)
+		}
+	}
+
+	statePath := options.Tail.StateFile
+	if statePath == "" {
+		return nil
+	}
+	if strings.ContainsAny(statePath, "*?") {
+		return fmt.Errorf("StateFile must be a file or directory path, not a wildcard: %q", statePath)
+	}
+	directoryState := strings.HasSuffix(statePath, string(os.PathSeparator)) || len(options.Reqs.LogFiles) > 1
+	for _, logFile := range options.Reqs.LogFiles {
+		if strings.ContainsAny(logFile, "*?[") {
+			directoryState = true
+			break
+		}
+	}
+	if directoryState {
+		if err := os.MkdirAll(statePath, 0755); err != nil {
+			return fmt.Errorf("cannot create StateFile directory %q: %v", statePath, err)
+		}
+		info, err := os.Stat(statePath)
+		if err != nil {
+			return fmt.Errorf("cannot access StateFile directory %q: %v", statePath, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("StateFile must be a directory when tailing multiple files or a glob: %q", statePath)
+		}
+	}
+
+	return nil
 }
 
 func usage() {

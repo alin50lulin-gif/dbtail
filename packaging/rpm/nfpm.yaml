@@ -1,0 +1,53 @@
+name: dbtail
+arch: amd64
+platform: linux
+version: ${PACKAGE_VERSION}
+release: ${PACKAGE_RELEASE}
+section: database
+priority: optional
+maintainer: DBtail maintainers
+description: MySQL and PostgreSQL log tailer for ClickHouse
+vendor: DBtail
+homepage: https://github.com/alin50lulin-gif/dbtail
+license: Apache-2.0
+
+depends:
+  - systemd
+
+contents:
+  - src: ./build/dbtail-linux-amd64
+    dst: /usr/bin/dbtail
+    file_info:
+      mode: 0755
+  - src: ./dbtail.conf
+    dst: /etc/dbtail/dbtail.conf
+    type: config|noreplace
+    file_info:
+      mode: 0600
+  - dst: /etc/dbtail/states
+    type: dir
+    file_info:
+      mode: 0755
+  - src: ./dbtail.service
+    dst: /usr/lib/systemd/system/dbtail.service
+    file_info:
+      mode: 0644
+  - src: ./schema/mysql.sql
+    dst: /usr/share/dbtail/schema/mysql.sql
+  - src: ./schema/postgresql.sql
+    dst: /usr/share/dbtail/schema/postgresql.sql
+  - src: ./schema/db.sql
+    dst: /usr/share/dbtail/schema/db.sql
+  - src: ./schema/mysqlaudit.sql
+    dst: /usr/share/dbtail/schema/mysqlaudit.sql
+  - src: ./schema/nginx.sql
+    dst: /usr/share/dbtail/schema/nginx.sql
+  - src: ./packaging/rpm/README.md
+    dst: /usr/share/doc/dbtail/README.md
+  - src: ./LICENSE
+    dst: /usr/share/doc/dbtail/LICENSE
+
+scripts:
+  postinstall: ./packaging/rpm/postinstall.sh
+  preremove: ./packaging/rpm/preuninstall.sh
+  postremove: ./packaging/rpm/postuninstall.sh

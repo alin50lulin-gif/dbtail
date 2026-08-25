@@ -1,35 +1,56 @@
 #!/bin/bash
 
-# Build deb or rpm packages for dbtail.
-set -e
+# Build an RPM package containing dbtail, its configuration, systemd unit,
+# schemas, and RPM-specific installation notes.
+set -euo pipefail
 
-function usage() {
-    echo "Usage: build-pkg.sh -v <version> -t <package_type>"
+usage() {
+    echo "Usage: $0 -v <version> [-r <release>] [-t rpm]"
     exit 2
 }
 
-while getopts "v:t:" opt; do
+version=""
+release="1"
+pkg_type="rpm"
+while getopts "v:r:t:" opt; do
     case "$opt" in
-    v)
-        version=$OPTARG
-        ;;
-    t)
-        pkg_type=$OPTARG
-        ;;
+        v) version=$OPTARG ;;
+        r) release=$OPTARG ;;
+        t) pkg_type=$OPTARG ;;
+        *) usage ;;
     esac
 done
 
-if [ -z "$version" ] || [ -z "$pkg_type" ]; then
+if [ -z "$version" ] || [ "$pkg_type" != "rpm" ]; then
     usage
 fi
 
-fpm -s dir -n dbtail \
-    -m "Support <support@altinity.com>" \
-    -p $GOPATH/bin \
-    -v $version \
-    -t $pkg_type \
-    --pre-install=./preinstall \
-    $GOPATH/bin/dbtail=/usr/bin/dbtail \
-    ./dbtail.upstart=/etc/init/dbtail.conf \
-    ./dbtail.service=/lib/systemd/system/dbtail.service \
-    ./dbtail.conf=/etc/dbtail/dbtail-example.conf
+repo_dir=$(cd "$(dirname "$0")" && pwd)
+binary="$repo_dir/build/dbtail-linux-amd64"
+output_dir="$repo_dir/build/packages"
+
+if [ ! -x "$binary" ]; then
+    echo "Missing Linux amd64 binary: $binary" >&2
+    echo "Build it before packaging." >&2
+    exit 1
+fi
+
+nfpm_cmd=""
+if command -v nfpm >/dev/null 2>&1; then
+    nfpm_cmd=$(command -v nfpm)
+elif [ -x "$repo_dir/build/tools/nfpm" ]; then
+    nfpm_cmd="$repo_dir/build/tools/nfpm"
+else
+    echo "nFPM is required to build the RPM package." >&2
+    exit 1
+fi
+
+mkdir -p "$output_dir"
+
+cd "$repo_dir"
+PACKAGE_VERSION="$version" PACKAGE_RELEASE="$release" "$nfpm_cmd" package \
+    --config packaging/rpm/nfpm.yaml \
+    --packager rpm \
+    --target "$output_dir/dbtail-${version}-${release}.x86_64.rpm"
+
+echo "Created $output_dir/dbtail-${version}-${release}.x86_64.rpm"
