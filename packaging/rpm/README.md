@@ -14,7 +14,13 @@ This package installs DBtail for Linux x86_64.
 ## Installation
 
 ```bash
-dnf install ./dbtail-1.0.0-1.x86_64.rpm
+rpm -ivh dbtail-1.0.0-1.x86_64.rpm
+```
+
+Upgrade an existing installation with:
+
+```bash
+rpm -Uvh dbtail-1.0.0-1.x86_64.rpm
 ```
 
 The package enables `dbtail.service`, but does not start it because the shipped

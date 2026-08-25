@@ -2,6 +2,16 @@
 
 `dbtail` is an agent for parsing log files and ingesting the resulting events into ClickHouse. It supports JSON as well as several database and web-server log formats.
 
+欢迎大家基于本项目进行二次开发、适配新的数据库日志格式，并提交 Issue 或 Pull Request。
+
+当前阶段的专项优化主要集中在三个部分：
+
+1. PostgreSQL 日志解析、`auto_explain` 执行计划及时间戳轮转。
+2. MySQL/MariaDB/Percona 慢日志解析及编号轮转。
+3. 公共 tail、statefile、文件句柄、systemd 和 RPM 部署能力。
+
+MongoDB、ArangoDB、Nginx、Regex、MySQL Audit 等原有解析器仍然保留并可继续使用，但不属于 2026-08-24 至 2026-08-25 这轮专项优化和生产验证范围，建议使用前按实际日志格式单独验证。
+
 ## Project Background
 
 `dbtail` is a maintained, extended fork of [Altinity/clicktail](https://github.com/Altinity/clicktail). The original `clicktail` project was itself developed from [honeycombio/honeytail](https://github.com/honeycombio/honeytail), but `clicktail` has not received updates for a long time.
@@ -98,10 +108,16 @@ Our complete list of parsers can be found in the [`parsers/` directory](parsers/
 
 DBtail currently provides an RPM package for Linux x86_64. The package contains the static binary, configuration template, systemd unit, ClickHouse schemas, state directory, and installation README.
 
-Install or upgrade with `dnf`:
+首次安装：
 
 ```bash
-dnf install ./dbtail-1.0.0-1.x86_64.rpm
+rpm -ivh dbtail-1.0.0-1.x86_64.rpm
+```
+
+升级已有版本：
+
+```bash
+rpm -Uvh dbtail-1.0.0-1.x86_64.rpm
 ```
 
 Installed files:
