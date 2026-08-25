@@ -96,51 +96,32 @@ Our complete list of parsers can be found in the [`parsers/` directory](parsers/
 
 ## Installation
 
-There are three installation options for dbtail:
-+ From package repository
-+ From downloaded package
-+ From source
+DBtail currently provides an RPM package for Linux x86_64. The package contains the static binary, configuration template, systemd unit, ClickHouse schemas, state directory, and installation README.
 
-#### Install from `Apt` package repository:
+Install or upgrade with `dnf`:
 
-```
-curl -s https://packagecloud.io/install/repositories/Altinity/clickhouse/script.deb.sh | bash
-```
-if you want to force `os` and `dist` of your system, use the following command:
-
-```
-curl -s https://packagecloud.io/install/repositories/Altinity/clickhouse/script.deb.sh | os=ubuntu dist=xenial bash
+```bash
+dnf install ./dbtail-1.0.0-1.x86_64.rpm
 ```
 
-Then install dbtail itself:
+Installed files:
+
+- `/usr/bin/dbtail`: Linux amd64 static binary
+- `/etc/dbtail/dbtail.conf`: main configuration file
+- `/etc/dbtail/states/`: persistent logfile offset states
+- `/usr/lib/systemd/system/dbtail.service`: systemd unit
+- `/usr/share/dbtail/schema/`: ClickHouse table schemas
+- `/usr/share/doc/dbtail/README.md`: package installation notes
+
+The package enables `dbtail.service` for automatic startup but does not start it immediately because the configuration must be completed first. RPM upgrades preserve a modified `/etc/dbtail/dbtail.conf` using the `noreplace` policy.
+
+After editing the configuration and creating the ClickHouse table, start DBtail:
+
+```bash
+systemctl start dbtail
+systemctl status dbtail
+journalctl -u dbtail -f
 ```
-apt-get install dbtail
-```
-
-#### Install from individual `dep` package
-
-Download and install the package from here: https://packagecloud.io/Altinity/clickhouse
-
-#### Install from source:
-
-```
-go get github.com/alin50lulin-gif/dbtail
-```
-
-to install to a specific path:
-
-```
-GOPATH=/usr/local go get github.com/alin50lulin-gif/dbtail
-```
-
-...and make it
-
-```
-GOPATH=/usr/local go build
-GOPATH=/usr/local go install
-```
-
-the binary will install to `/usr/local/bin/dbtail`
 
 ## Configuration
 
@@ -157,8 +138,12 @@ APIHost = http://localhost:8123/
 ...
 [Required Options]
 ParserName = mysql
-LogFiles = /var/log/mysql/mariadb-slow.log
+LogFiles = /mysql/data3307/log/slow.log*
 Dataset = dbtail.mysql_slow_log_{ip}_{port}
+
+[Tail Options]
+ReadFrom = last
+StateFile = /etc/dbtail/states/
 ```
 
 #### Extra options for MySQL parser
@@ -175,18 +160,18 @@ Pass = userpass
 
 ## Usage
 
-Make sure ClickHouse server has proper schema created. See `schema` folder for `CREATE DATABASE` and `CREATE TABLE` statements.
+Make sure ClickHouse has the required database and table. RPM installs the SQL files under `/usr/share/dbtail/schema/`.
 
 Or do the following:
 
 Create DB:
 ```
-cat schema/db.sql | clickhouse-client --multiline
+clickhouse-client --multiline < /usr/share/dbtail/schema/db.sql
 ```
 
 Create Table for MySQL slow logs:
 ```
-cat schema/mysql.sql | clickhouse-client --multiline
+clickhouse-client --multiline < /usr/share/dbtail/schema/mysql.sql
 ```
 
 For PostgreSQL logs using the extended prefix and `auto_explain`, configure:
@@ -208,10 +193,10 @@ Or with Nginx parser:
 dbtail -p nginx -f /var/log/nginx/access.log -d dbtail.nginx_log --nginx.conf=/etc/nginx/nginx.conf --nginx.format=combined
 ```
 
-After you done with checking out your configuration options, you will need to store them in `dbtail.conf` in order to run `dbtail` as a service just like that:
+After saving `/etc/dbtail/dbtail.conf`, manage DBtail through systemd:
 
-```
-service dbtail start
+```bash
+systemctl enable --now dbtail
 ```
 
 #### Retroactive logs loading
@@ -236,6 +221,3 @@ Once you installed Clickhouse you whould probably need it to be open to outside 
 just after: `<listen_host>127.0.0.1</listen_host>`
 
 Also make sure ClickHouse port (which is `8123` by default) is open with your firewall.
-
-
-For more advanced usage, options, and the ability to scrub or drop specific fields, see [documentation](https://honeycomb.io/docs/send-data/agent).
