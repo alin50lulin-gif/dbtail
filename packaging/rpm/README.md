@@ -5,6 +5,7 @@ This package installs DBtail for Linux x86_64.
 ## Installed files
 
 - `/usr/bin/dbtail`: statically linked DBtail executable
+- `/usr/bin/dbtail-check-lag`: ClickHouse ingestion-lag monitor
 - `/etc/dbtail/dbtail.conf`: main configuration (`%config(noreplace)` on upgrade)
 - `/etc/dbtail/states/`: persistent per-log offset state files
 - `/usr/lib/systemd/system/dbtail.service`: systemd service unit
@@ -80,3 +81,15 @@ After changing the configuration or installing a new binary:
 ```bash
 systemctl restart dbtail
 ```
+
+## Ingestion-lag monitoring
+
+The monitor discovers PostgreSQL and MySQL DBtail tables and alerts when
+`now() - max(_time)` exceeds 600 seconds:
+
+```bash
+CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
+```
+
+It returns `0` when healthy, `1` for stale or empty tables, and `2` for query or
+configuration errors. Configure cron to run it every minute if required.

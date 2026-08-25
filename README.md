@@ -202,6 +202,24 @@ clickhouse-client --multiline < /usr/share/dbtail/schema/postgresql.sql
 
 Review the table name and optional TTL statement before executing a schema.
 
+### Ingestion-lag monitoring
+
+RPM installs `/usr/bin/dbtail-check-lag`. It automatically discovers `dw_pg_sql_logs_*` and `mysql_slow_log_*` tables and alerts when `now() - max(_time)` exceeds 600 seconds:
+
+```bash
+CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
+```
+
+Optional settings include `CH_HOST`, `CH_PORT`, `CH_USER`, `CH_PASSWORD_FILE`, `TABLE_REGEX`, `SYSLOG_ALERT`, and `ALERT_COMMAND`. The custom alert command receives the complete alert text as its first argument.
+
+Example cron entry, running once per minute:
+
+```cron
+* * * * * CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 /usr/bin/dbtail-check-lag >> /var/log/dbtail-monitor.log 2>&1
+```
+
+Exit codes are `0` for healthy, `1` for stale or empty tables, and `2` for ClickHouse query or configuration errors. This simple check can produce a false alarm when an instance legitimately generates no matching SQL for ten minutes; a future heartbeat-based check can distinguish an idle database from an interrupted collector.
+
 ---
 
 ## 中文
@@ -402,3 +420,21 @@ clickhouse-client --multiline < /usr/share/dbtail/schema/postgresql.sql
 ```
 
 执行前请根据实际环境检查表名和可选 TTL 语句。
+
+### 采集延迟告警
+
+RPM 会安装 `/usr/bin/dbtail-check-lag`。脚本自动发现 `dw_pg_sql_logs_*` 和 `mysql_slow_log_*` 表，当 `now() - max(_time)` 超过 600 秒时告警：
+
+```bash
+CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
+```
+
+可选参数包括 `CH_HOST`、`CH_PORT`、`CH_USER`、`CH_PASSWORD_FILE`、`TABLE_REGEX`、`SYSLOG_ALERT` 和 `ALERT_COMMAND`。自定义告警命令会通过第一个参数收到完整告警内容。
+
+每分钟检查一次的 crontab 示例：
+
+```cron
+* * * * * CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 /usr/bin/dbtail-check-lag >> /var/log/dbtail-monitor.log 2>&1
+```
+
+退出码：正常为 `0`，表延迟或空表为 `1`，ClickHouse 查询或配置错误为 `2`。如果某个实例十分钟内确实没有产生符合条件的 SQL，这种简单的 `_time` 检查也会告警；后续可以增加独立心跳机制，用来区分“数据库空闲”和“采集器中断”。
