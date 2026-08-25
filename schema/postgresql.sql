@@ -53,4 +53,6 @@ CREATE TABLE IF NOT EXISTS dbtail.dw_pg_sql_logs_{ip}_{port}
 ENGINE = MergeTree
 PARTITION BY `_date`
 ORDER BY (`_time`, `_ms`, `database`, `session_id`)
+-- Optional retention policy: uncomment to delete PostgreSQL log rows after 1 month.
+-- TTL `_time` + INTERVAL 1 MONTH DELETE
 SETTINGS index_granularity = 8192;

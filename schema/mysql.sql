@@ -51,5 +51,11 @@ CREATE TABLE IF NOT EXISTS dbtail.mysql_slow_log_{ip}_{port}
     read_only UInt8,
     replica_lag UInt64,
     role String
-    
-) ENGINE = MergeTree(`_date`, (`_time`, query), 8192);
+
+)
+ENGINE = MergeTree
+PARTITION BY `_date`
+ORDER BY (`_time`, query)
+-- Optional retention policy: uncomment to delete MySQL slow-log rows after 6 months.
+-- TTL `_time` + INTERVAL 6 MONTH DELETE
+SETTINGS index_granularity = 8192;
