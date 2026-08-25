@@ -220,6 +220,17 @@ CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
 
 The script contains the placeholders `CH_USER=dbtail` and `CH_PASSWORD=password`. Replace them with the actual ClickHouse credentials through the local environment before deployment. Optional overrides include `CH_HOST`, `CH_PORT`, `CH_DATABASE`, `CH_USER`, `CH_PASSWORD`, `TABLE_REGEX`, `SYSLOG_ALERT`, and `ALERT_COMMAND`. The custom alert command receives the complete alert text as its first argument.
 
+To enable DingTalk custom-robot alerts, replace the webhook placeholder on the ClickHouse server or pass it through the cron environment:
+
+```bash
+DINGTALK_WEBHOOK='https://oapi.dingtalk.com/robot/send?access_token=REPLACE_WITH_REAL_TOKEN' \
+DINGTALK_KEYWORD='DBtail' \
+CH_DATABASE=dbtail \
+/usr/local/bin/dbtail-check-lag
+```
+
+Leave `REPLACE_ME` unchanged to disable DingTalk delivery. `DINGTALK_KEYWORD` should match the keyword configured in the DingTalk robot security settings.
+
 Example cron entry, running once per minute:
 
 ```cron
@@ -446,6 +457,17 @@ CH_DATABASE=dbtail LAG_THRESHOLD_SECONDS=600 dbtail-check-lag
 ```
 
 脚本内提供占位值 `CH_USER=dbtail` 和 `CH_PASSWORD=password`，部署时必须通过本机环境变量替换成 ClickHouse 的真实账号密码。可通过 `CH_HOST`、`CH_PORT`、`CH_DATABASE`、`CH_USER`、`CH_PASSWORD`、`TABLE_REGEX`、`SYSLOG_ALERT` 和 `ALERT_COMMAND` 覆盖配置。自定义告警命令会通过第一个参数收到完整告警内容。
+
+如需启用钉钉自定义机器人告警，可以在 ClickHouse 服务端替换 webhook 占位值，或者通过 crontab 环境变量传入：
+
+```bash
+DINGTALK_WEBHOOK='https://oapi.dingtalk.com/robot/send?access_token=REPLACE_WITH_REAL_TOKEN' \
+DINGTALK_KEYWORD='DBtail' \
+CH_DATABASE=dbtail \
+/usr/local/bin/dbtail-check-lag
+```
+
+保留 `REPLACE_ME` 时不会发送钉钉消息。`DINGTALK_KEYWORD` 应与钉钉机器人安全设置中配置的关键词一致。
 
 每分钟检查一次的 crontab 示例：
 

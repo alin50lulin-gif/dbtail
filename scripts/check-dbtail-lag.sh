@@ -16,6 +16,10 @@ LAG_THRESHOLD_SECONDS=${LAG_THRESHOLD_SECONDS:-600}
 TABLE_REGEX=${TABLE_REGEX:-'^(dw_pg_sql_logs_|mysql_slow_log_)[A-Za-z0-9_]+$'}
 ALERT_COMMAND=${ALERT_COMMAND:-}
 SYSLOG_ALERT=${SYSLOG_ALERT:-true}
+# Replace REPLACE_ME with the access_token URL of a DingTalk custom robot.
+# Leave the placeholder unchanged to disable DingTalk notifications.
+DINGTALK_WEBHOOK=${DINGTALK_WEBHOOK:-'https://oapi.dingtalk.com/robot/send?access_token=REPLACE_ME'}
+DINGTALK_KEYWORD=${DINGTALK_KEYWORD:-DBtail}
 
 if ! [[ "$LAG_THRESHOLD_SECONDS" =~ ^[0-9]+$ ]] || [ "$LAG_THRESHOLD_SECONDS" -eq 0 ]; then
     echo "ERROR: LAG_THRESHOLD_SECONDS must be a positive integer" >&2
@@ -53,6 +57,65 @@ emit_alert() {
     fi
 }
 
+json_escape() {
+    local value=$1
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    value=${value//$'\n'/\\n}
+    value=${value//$'\r'/\\r}
+    printf '%s' "$value"
+}
+
+send_dingtalk_alert() {
+    local message=$1
+    local content payload response
+
+    if [ -z "$DINGTALK_WEBHOOK" ] || [[ "$DINGTALK_WEBHOOK" == *REPLACE_ME* ]]; then
+        return 0
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        emit_alert "cannot send DingTalk alert: curl is not installed"
+        return 1
+    fi
+
+    content=$(json_escape "[$DINGTALK_KEYWORD] DBtail ingestion alert
+$message")
+    payload="{\"msgtype\":\"text\",\"text\":{\"content\":\"$content\"},\"at\":{\"isAtAll\":false}}"
+    if ! response=$(curl --silent --show-error --fail \
+        --connect-timeout 5 --max-time 10 \
+        --header 'Content-Type: application/json' \
+        --data "$payload" \
+        "$DINGTALK_WEBHOOK" 2>&1); then
+        emit_alert "failed to send DingTalk alert: $response"
+        return 1
+    fi
+    if ! grep -Eq '"errcode"[[:space:]]*:[[:space:]]*0' <<< "$response"; then
+        emit_alert "DingTalk rejected alert: $response"
+        return 1
+    fi
+    return 0
+}
+
+dispatch_alert() {
+    local message=$1
+    local delivery_failed=0
+
+    emit_alert "$message"
+    if [ -n "$ALERT_COMMAND" ]; then
+        if [ ! -x "$ALERT_COMMAND" ]; then
+            emit_alert "ALERT_COMMAND is not executable: $ALERT_COMMAND"
+            delivery_failed=1
+        elif ! "$ALERT_COMMAND" "$message"; then
+            emit_alert "ALERT_COMMAND failed: $ALERT_COMMAND"
+            delivery_failed=1
+        fi
+    fi
+    if ! send_dingtalk_alert "$message"; then
+        delivery_failed=1
+    fi
+    return "$delivery_failed"
+}
+
 table_query="SELECT name
 FROM system.tables
 WHERE database = {database:String}
@@ -61,12 +124,12 @@ ORDER BY name"
 
 if ! tables=$("$CH_CLIENT" "${client_args[@]}" \
     --param_database "$CH_DATABASE" --query "$table_query" 2>&1); then
-    emit_alert "cannot query ClickHouse tables: $tables"
+    dispatch_alert "cannot query ClickHouse tables: $tables" || true
     exit 2
 fi
 
 if [ -z "$tables" ]; then
-    emit_alert "no DBtail tables found in database $CH_DATABASE"
+    dispatch_alert "no DBtail tables found in database $CH_DATABASE" || true
     exit 2
 fi
 
@@ -108,19 +171,14 @@ while IFS= read -r table; do
 done <<< "$tables"
 
 if [ "$checked" -eq 0 ]; then
-    emit_alert "no table matched TABLE_REGEX=$TABLE_REGEX in database $CH_DATABASE"
+    dispatch_alert "no table matched TABLE_REGEX=$TABLE_REGEX in database $CH_DATABASE" || true
     exit 2
 fi
 
 if [ "${#alerts[@]}" -gt 0 ]; then
     summary=$(printf '%s\n' "${alerts[@]}")
-    emit_alert "$summary"
-    if [ -n "$ALERT_COMMAND" ]; then
-        if [ ! -x "$ALERT_COMMAND" ]; then
-            emit_alert "ALERT_COMMAND is not executable: $ALERT_COMMAND"
-            exit 2
-        fi
-        "$ALERT_COMMAND" "$summary"
+    if ! dispatch_alert "$summary"; then
+        exit 2
     fi
     if [ "$query_errors" -gt 0 ]; then
         exit 2
