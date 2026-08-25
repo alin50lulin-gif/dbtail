@@ -1,120 +1,113 @@
-# dbtail
+# DBtail
 
-`dbtail` is an agent for parsing log files and ingesting the resulting events into ClickHouse. It supports JSON as well as several database and web-server log formats.
+[English](#english) | [中文](#中文)
 
-欢迎大家基于本项目进行二次开发、适配新的数据库日志格式，并提交 Issue 或 Pull Request。
+## English
 
-当前阶段的专项优化主要集中在三个部分：
+DBtail parses database and web-server log files and sends structured events to ClickHouse. Contributions, secondary development, new log-format adapters, issues, and pull requests are welcome.
 
-1. PostgreSQL 日志解析、`auto_explain` 执行计划及时间戳轮转。
-2. MySQL/MariaDB/Percona 慢日志解析及编号轮转。
-3. 公共 tail、statefile、文件句柄、systemd 和 RPM 部署能力。
+### Project background
 
-MongoDB、ArangoDB、Nginx、Regex、MySQL Audit 等原有解析器仍然保留并可继续使用，但不属于 2026-08-24 至 2026-08-25 这轮专项优化和生产验证范围，建议使用前按实际日志格式单独验证。
-
-## Project Background
-
-`dbtail` is a maintained, extended fork of [Altinity/clicktail](https://github.com/Altinity/clicktail). The original `clicktail` project was itself developed from [honeycombio/honeytail](https://github.com/honeycombio/honeytail), but `clicktail` has not received updates for a long time.
-
-The project lineage is:
+DBtail is a maintained and extended fork of [Altinity/clicktail](https://github.com/Altinity/clicktail), which was originally developed from [honeycombio/honeytail](https://github.com/honeycombio/honeytail):
 
 ```text
 honeytail -> clicktail -> dbtail
 ```
 
-`dbtail` continues development with compatibility fixes for current log formats, bug fixes, and ongoing maintenance while preserving the original parsing and ClickHouse ingestion behavior.
+The current development effort focuses on three areas:
 
-## 2026-08-24 / 2026-08-25 重要更新
+1. PostgreSQL log parsing, `auto_explain` plans, and timestamp-based rotation.
+2. MySQL, MariaDB, and Percona slow-log parsing and numbered rotation.
+3. Shared tailing, state files, file-handle lifecycle, systemd, and RPM packaging.
 
-这两天的工作重点是解决 PostgreSQL 和 MySQL 高频日志采集中的解析、轮转、断点续读、文件句柄及部署问题。
+The existing MongoDB, ArangoDB, Nginx, Regex, and MySQL Audit parsers remain available. They were not part of the production validation performed on August 24–25, 2026, so validate them against your own log formats before production use.
 
-### PostgreSQL 模块
+### August 24–25, 2026 update
 
-已修复和增强：
+#### PostgreSQL
 
-- 兼容新版 PostgreSQL 日志前缀，包括 `%Q` Query Identifier、十六进制 session ID，以及包含空格的 application name。
-- 支持 `auto_explain` 多行 JSON 执行计划，提取 SQL、Query ID、关联表和执行计划节点类型。
-- 支持 `postgresql-%Y-%m-%d_%H%M%S.log` 时间戳轮转；历史文件继续读取的同时立即发现并读取最新日志，不再因历史积压阻塞实时日志。
-- 修复 statefile 断点续读、文件读取完成后 offset 被错误归零、日志删除后遗留 statefile 等问题。
-- 修复日志读取完成后文件句柄未释放、已删除文件仍然占用磁盘空间的问题。
-- 增加 `IgnoreQueryRegex`，并针对 `auto_explain` JSON 增加快速过滤路径，可过滤 `SELECT 1`，减少完整 JSON 解析、网络发送及 ClickHouse 存储开销。
-- 更新 PostgreSQL ClickHouse 表结构，增加执行计划字段，并提供 `query_text`、`event_time` 等兼容别名。
-- PostgreSQL 表提供可选的一个月 TTL 示例。
+Fixed and enhanced:
 
-已在实际日志环境验证：
+- Supports modern PostgreSQL log prefixes, including `%Q` Query Identifier, hexadecimal session IDs, and application names containing spaces.
+- Parses multiline `auto_explain` JSON plans and extracts SQL text, Query ID, referenced tables, and plan node types.
+- Supports timestamp-based files such as `postgresql-%Y-%m-%d_%H%M%S.log`.
+- Reads historical files while immediately discovering and reading the latest file, preventing backlog from blocking real-time collection.
+- Fixes state-file resume, completed offsets being reset to zero, and stale state-file cleanup.
+- Releases file handles after a logfile reaches EOF, so deleted logs no longer continue occupying disk space.
+- Adds `IgnoreQueryRegex` and a fast path for filtering queries such as `SELECT 1`, reducing JSON parsing, network, and ClickHouse storage overhead.
+- Updates the ClickHouse schema with plan fields and compatibility aliases such as `query_text` and `event_time`.
+- Provides an optional one-month TTL example.
 
-- 时间戳轮转产生的新日志可以自动发现。
-- 多个历史文件与最新文件可以并行读取。
-- dbtail 重启后从 statefile 保存的 inode 和 offset 继续读取。
-- 文件读取完成后 offset 等于文件大小且不会归零。
-- 历史日志读取完成后句柄正常释放。
-- 日志被清理后，对应的过期 statefile 会自动清理，无需重启 dbtail。
-- `auto_explain` JSON plan 能够正常解析并写入 ClickHouse。
-- 启用过滤后，`SELECT 1` 停止入库，其他 SQL 继续写入。
+Validated with production-style logs:
 
-### MySQL 模块
+- Automatic discovery of newly rotated files.
+- Concurrent reading of historical and current files.
+- Resume from the saved inode and offset after restarting DBtail.
+- Stable final offset equal to the completed file size.
+- File-handle release after EOF.
+- Runtime cleanup of state files whose source logs were removed.
+- Successful parsing and insertion of multiline JSON plans.
+- `SELECT 1` filtering while other SQL continues to reach ClickHouse.
 
-已修复和增强：
+#### MySQL, MariaDB, and Percona
 
-- 更新慢日志解析，兼容常见 MySQL、MariaDB 和 Percona Server 字段，包括扩展慢日志统计字段。
-- MySQL ClickHouse 表名统一为 `mysql_slow_log_{ip}_{port}`。
-- 支持 Percona Server 的编号慢日志轮转，例如 `slow.log.000001`、`slow.log.000002`；运行期间会动态发现新的编号文件。
-- MySQL 表提供可选的六个月 TTL 示例。
+Fixed and enhanced:
 
-已在 Percona Server 8.0.40-31 环境验证：
+- Extends slow-log parsing for common MySQL, MariaDB, and Percona fields.
+- Uses the ClickHouse table naming convention `mysql_slow_log_{ip}_{port}`.
+- Supports Percona numbered rotation such as `slow.log.000001` and dynamically discovers later sequence files.
+- Provides an optional six-month TTL example.
 
-- MySQL 慢日志能够正常解析并写入 ClickHouse。
-- `slow.log.000001` 到后续编号文件可以连续轮转；编号越大、时间越新，编号最大的文件是当前活动日志。
-- dbtail 重启后能够根据每个文件的 statefile 断点续读。
-- 历史文件读取完成后能够释放文件句柄。
+Validated with Percona Server 8.0.40-31:
 
-Percona 编号轮转应使用文件系统 glob：
+- Slow-log events are parsed and inserted into ClickHouse.
+- Numbered files rotate continuously; the highest sequence is the newest active file.
+- Restart resumes each file from its own state file.
+- Completed historical files release their handles.
+
+Use a filesystem glob for Percona numbered rotation:
 
 ```ini
 LogFiles = /mysql/data3307/log/slow.log*
 StateFile = /etc/dbtail/states/
 ```
 
-不要写成正则表达式形式的 `slow\.log\*`，也不要只监听旧的 `slow.log`。标准 MySQL、外部 `logrotate` 与 Percona 内置编号轮转的行为可能不同，应以 `@@slow_query_log_file` 和实际持续增长的文件为准。
+Do not use regex-style escaping such as `slow\.log\*`, and do not monitor only the old `slow.log`. Standard MySQL, external `logrotate`, and Percona internal rotation can behave differently; verify the active path with `@@slow_query_log_file` and by observing which file continues to grow.
 
-### 公共模块与部署
+#### Shared tailing and deployment
 
-已修复和增强：
+- Dynamically discovers new files matching a configured glob.
+- Tails multiple files concurrently.
+- Creates the state directory and maintains per-file resume offsets.
+- Cleans state files for removed logs.
+- Fixes races between file closing and offset persistence.
+- Rejects common configuration mistakes such as `StateFile = .../*`, escaped glob wildcards, and Markdown-formatted `APIHost` values.
+- Provides a statically linked Linux amd64 binary and a systemd unit.
+- Provides RPM packaging with the binary, configuration, systemd unit, ClickHouse schemas, state directory, and installation guide.
+- Protects an existing `/etc/dbtail/dbtail.conf` during upgrades using RPM `noreplace` behavior.
 
-- 支持运行期间动态发现 glob 新匹配的日志文件。
-- 支持多日志文件并行 tail，避免单个历史大文件阻塞最新日志。
-- 完善 statefile 自动创建、断点续读、完成位置保存和过期文件清理。
-- 修复文件关闭与 offset 保存之间的并发问题。
-- 增加配置校验，能够识别 `StateFile = .../*`、转义错误的日志 glob 和 Markdown 格式的 `APIHost`。
-- 支持自动创建 statefile 目录，并改进 `dbtail.conf` 中 MySQL、PostgreSQL 和轮转配置说明。
-- 支持 Linux amd64 静态二进制及 systemd 部署。
-- 增加 RPM 构建支持；RPM 包包含二进制、配置文件、systemd unit、ClickHouse schema 和安装 README，并使用配置文件 `noreplace` 策略保护现场配置。
-
-## Supported Parsers
-
-`dbtail` supports reading files from `STDIN` as well as from a file on disk.
-
-Our complete list of parsers can be found in the [`parsers/` directory](parsers/), but as of this writing, `dbtail` will support parsing logs generated by:
+### Supported parsers
 
 - [ArangoDB](parsers/arangodb/)
 - [MongoDB](parsers/mongodb/)
 - [MySQL](parsers/mysql/)
 - [PostgreSQL](parsers/postgresql/)
-- [nginx](parsers/nginx/)
-- [regex](parsers/regex/)
-- [mysqlaudit](parsers/mysqlaudit/)
+- [Nginx](parsers/nginx/)
+- [Regex](parsers/regex/)
+- [MySQL Audit](parsers/mysqlaudit/)
+- JSON and key-value logs
 
-## Installation
+### RPM installation
 
-DBtail currently provides an RPM package for Linux x86_64. The package contains the static binary, configuration template, systemd unit, ClickHouse schemas, state directory, and installation README.
+DBtail currently ships as an RPM for Linux x86_64.
 
-首次安装：
+Install:
 
 ```bash
 rpm -ivh dbtail-1.0.0-1.x86_64.rpm
 ```
 
-升级已有版本：
+Upgrade:
 
 ```bash
 rpm -Uvh dbtail-1.0.0-1.x86_64.rpm
@@ -122,16 +115,14 @@ rpm -Uvh dbtail-1.0.0-1.x86_64.rpm
 
 Installed files:
 
-- `/usr/bin/dbtail`: Linux amd64 static binary
-- `/etc/dbtail/dbtail.conf`: main configuration file
-- `/etc/dbtail/states/`: persistent logfile offset states
-- `/usr/lib/systemd/system/dbtail.service`: systemd unit
-- `/usr/share/dbtail/schema/`: ClickHouse table schemas
-- `/usr/share/doc/dbtail/README.md`: package installation notes
+- `/usr/bin/dbtail`
+- `/etc/dbtail/dbtail.conf`
+- `/etc/dbtail/states/`
+- `/usr/lib/systemd/system/dbtail.service`
+- `/usr/share/dbtail/schema/`
+- `/usr/share/doc/dbtail/README.md`
 
-The package enables `dbtail.service` for automatic startup but does not start it immediately because the configuration must be completed first. RPM upgrades preserve a modified `/etc/dbtail/dbtail.conf` using the `noreplace` policy.
-
-After editing the configuration and creating the ClickHouse table, start DBtail:
+The package enables the service for automatic startup but does not start it with the placeholder configuration. Configure DBtail and create the ClickHouse table first, then run:
 
 ```bash
 systemctl start dbtail
@@ -139,101 +130,253 @@ systemctl status dbtail
 journalctl -u dbtail -f
 ```
 
-## Configuration
+### Configuration examples
 
-DBtail supports command line options as well as configuration file. In fact the file is not picked up by default when you are running `dbtail` from CLI so one should explicitly specify it with `-c` option.
+MySQL/Percona:
 
-Use `dbtail.conf` file to manage options. There are section of the file called `Required Options` which should be set in the first place.
-
-#### Config Example
-
-`/etc/dbtail/dbtail.conf`
-```
+```ini
 [Application Options]
-APIHost = http://localhost:8123/
-...
+APIHost = http://user:password@clickhouse-host:8123/
+NumSenders = 2
+BatchFrequencyMs = 10000
+BatchSize = 1000
+
 [Required Options]
 ParserName = mysql
 LogFiles = /mysql/data3307/log/slow.log*
-Dataset = dbtail.mysql_slow_log_{ip}_{port}
+Dataset = dbtail.mysql_slow_log_10_10_184_213_3309
 
 [Tail Options]
 ReadFrom = last
+Stop = false
 StateFile = /etc/dbtail/states/
 ```
 
-#### Extra options for MySQL parser
-
-There are useful options that could be passed along with mysql slow log entries but its not logged within the file itself, i.e. hostname of actual server. To get this data one can specify MySQL server connection details in config file.
-
-```
-...
-[MySQL Parser Options]
-Host = localhost:3306   ; or @unix(/var/run/mysqld/mysqld.sock)
-User = username
-Pass = userpass
-```
-
-## Usage
-
-Make sure ClickHouse has the required database and table. RPM installs the SQL files under `/usr/share/dbtail/schema/`.
-
-Or do the following:
-
-Create DB:
-```
-clickhouse-client --multiline < /usr/share/dbtail/schema/db.sql
-```
-
-Create Table for MySQL slow logs:
-```
-clickhouse-client --multiline < /usr/share/dbtail/schema/mysql.sql
-```
-
-For PostgreSQL logs using the extended prefix and `auto_explain`, configure:
+PostgreSQL:
 
 ```ini
+[Application Options]
+APIHost = http://user:password@clickhouse-host:8123/
+NumSenders = 4
+BatchFrequencyMs = 10000
+BatchSize = 1000
+
+[Required Options]
+ParserName = postgresql
+LogFiles = /postgresql/data5432/log/postgresql-*.log
+Dataset = dbtail.dw_pg_sql_logs_10_10_24_90_5432
+
 [PostgreSQL Parser Options]
 LogLinePrefix = %m [%p] [%Q]:[%c]:[%l] %u@%d [%r]: [%a/%i] [%v/%x]
 IgnoreQueryRegex = (?i)^\s*select\s+1\s*;?\s*$
+
+[Tail Options]
+ReadFrom = last
+Stop = false
+StateFile = /etc/dbtail/states/
 ```
 
-Once schema is prepared you can run binary from CLI with MySQL parser:
-```
-dbtail --dataset='dbtail.mysql_slow_log_{ip}_{port}' --parser=mysql --file=/var/log/mysql/mysql-slow.log
-```
+`LogFiles` uses filesystem glob syntax, not regular expressions. `StateFile` is a directory and must not end in `*`.
 
-Or with Nginx parser:
+### ClickHouse schema
 
-```
-dbtail -p nginx -f /var/log/nginx/access.log -d dbtail.nginx_log --nginx.conf=/etc/nginx/nginx.conf --nginx.format=combined
-```
-
-After saving `/etc/dbtail/dbtail.conf`, manage DBtail through systemd:
+RPM installs the schemas under `/usr/share/dbtail/schema/`:
 
 ```bash
-systemctl enable --now dbtail
+clickhouse-client --multiline < /usr/share/dbtail/schema/db.sql
+clickhouse-client --multiline < /usr/share/dbtail/schema/mysql.sql
+# or
+clickhouse-client --multiline < /usr/share/dbtail/schema/postgresql.sql
 ```
 
-#### Retroactive logs loading
+Review the table name and optional TTL statement before executing a schema.
 
-If you want to load files you already have into dbtail. You can use the same call as mentioned above but with extra parameter `--backfill`
+---
 
+## 中文
+
+DBtail 用于解析数据库和 Web 服务器日志，并将结构化事件写入 ClickHouse。欢迎大家基于本项目进行二次开发、适配新的日志格式，以及提交 Issue 和 Pull Request。
+
+### 项目背景
+
+DBtail 是 [Altinity/clicktail](https://github.com/Altinity/clicktail) 的持续维护和增强版本，而 clicktail 最初基于 [honeycombio/honeytail](https://github.com/honeycombio/honeytail) 开发：
+
+```text
+honeytail -> clicktail -> dbtail
 ```
-dbtail --dataset='dbtail.mysql_slow_log_{ip}_{port}' --parser=mysql --file=/var/log/mysql/mysql-slow.log --backfill
+
+当前阶段的专项优化主要集中在三个部分：
+
+1. PostgreSQL 日志解析、`auto_explain` 执行计划和时间戳轮转。
+2. MySQL、MariaDB、Percona 慢日志解析和编号轮转。
+3. 公共 tail、statefile、文件句柄、systemd 和 RPM 部署能力。
+
+MongoDB、ArangoDB、Nginx、Regex、MySQL Audit 等原有解析器仍然保留并可继续使用，但不属于 2026 年 8 月 24–25 日这轮专项生产验证范围，正式使用前应根据实际日志格式单独验证。
+
+### 2026 年 8 月 24–25 日重要更新
+
+#### PostgreSQL 模块
+
+已修复和增强：
+
+- 兼容新版 PostgreSQL 日志前缀，包括 `%Q` Query Identifier、十六进制 session ID，以及包含空格的 application name。
+- 支持 `auto_explain` 多行 JSON 执行计划，提取 SQL、Query ID、关联表和执行计划节点类型。
+- 支持 `postgresql-%Y-%m-%d_%H%M%S.log` 时间戳轮转。
+- 历史文件继续读取的同时立即发现并读取最新日志，避免历史积压阻塞实时日志。
+- 修复 statefile 断点续读、完成 offset 被错误归零和过期 statefile 清理问题。
+- 文件读取到 EOF 后释放句柄，避免已删除日志继续占用磁盘空间。
+- 增加 `IgnoreQueryRegex` 和快速过滤路径，可过滤 `SELECT 1`，减少 JSON 解析、网络发送和 ClickHouse 存储开销。
+- 更新 ClickHouse 表结构，增加执行计划字段及 `query_text`、`event_time` 等兼容别名。
+- 提供可选的一个月 TTL 示例。
+
+实际日志环境已验证：
+
+- 自动发现时间戳轮转产生的新文件。
+- 历史文件和当前文件并行读取。
+- 重启后从 statefile 保存的 inode 和 offset 继续读取。
+- 文件完成后的 offset 等于文件大小且不会归零。
+- 文件读取完成后正常释放句柄。
+- 日志被删除后，在运行期间自动清理对应 statefile，无需重启。
+- 多行 JSON plan 正常解析并写入 ClickHouse。
+- `SELECT 1` 停止入库，其他 SQL 继续写入。
+
+#### MySQL、MariaDB 和 Percona 模块
+
+已修复和增强：
+
+- 扩展慢日志解析，兼容常见 MySQL、MariaDB 和 Percona 字段。
+- ClickHouse 表名统一为 `mysql_slow_log_{ip}_{port}`。
+- 支持 `slow.log.000001`、`slow.log.000002` 等 Percona 编号轮转，并动态发现后续编号文件。
+- 提供可选的六个月 TTL 示例。
+
+已在 Percona Server 8.0.40-31 环境验证：
+
+- 慢日志正常解析并写入 ClickHouse。
+- 编号文件可以连续轮转，编号最大的文件是最新活动日志。
+- 重启后根据每个文件对应的 statefile 断点续读。
+- 历史文件读取完成后释放文件句柄。
+
+Percona 编号轮转配置：
+
+```ini
+LogFiles = /mysql/data3307/log/slow.log*
+StateFile = /etc/dbtail/states/
 ```
-...this will load `mysql-slow.log` file into DBtail and end the process.
 
-## ClickHouse Setup
+不要写成正则形式的 `slow\.log\*`，也不要只监听旧的 `slow.log`。标准 MySQL、外部 `logrotate` 与 Percona 内置轮转行为可能不同，应通过 `@@slow_query_log_file` 和持续增长的实际文件确认当前活动路径。
 
-DBtail is required ClickHouse to be accessible as a target server. So you should have ClickHouse server installed.
+#### 公共模块与部署
 
-Follow these steps in order to install ClickHouse server and make it work with DBtail.
+- 动态发现 glob 新匹配的日志文件。
+- 多文件并行 tail，避免历史大文件阻塞最新日志。
+- 自动创建 state 目录，保存每个文件的断点位置，并清理已删除日志对应的 statefile。
+- 修复文件关闭与 offset 保存之间的并发问题。
+- 检查 `StateFile = .../*`、转义错误的 glob 和 Markdown 格式 `APIHost` 等常见配置错误。
+- 提供 Linux amd64 静态二进制和 systemd unit。
+- RPM 包包含二进制、配置文件、systemd unit、ClickHouse schema、state 目录和安装说明。
+- RPM 升级使用 `noreplace` 机制保护已有 `/etc/dbtail/dbtail.conf`。
 
-Once you installed Clickhouse you whould probably need it to be open to outside connections. In order to do so update `/etc/clickhouse-server/config.xml` to add the following line:
+### 支持的解析器
 
-`<listen_host>0.0.0.0</listen_host>`
+- [ArangoDB](parsers/arangodb/)
+- [MongoDB](parsers/mongodb/)
+- [MySQL](parsers/mysql/)
+- [PostgreSQL](parsers/postgresql/)
+- [Nginx](parsers/nginx/)
+- [Regex](parsers/regex/)
+- [MySQL Audit](parsers/mysqlaudit/)
+- JSON 和 key-value 日志
 
-just after: `<listen_host>127.0.0.1</listen_host>`
+### RPM 安装
 
-Also make sure ClickHouse port (which is `8123` by default) is open with your firewall.
+DBtail 当前提供 Linux x86_64 RPM 包。
+
+首次安装：
+
+```bash
+rpm -ivh dbtail-1.0.0-1.x86_64.rpm
+```
+
+升级：
+
+```bash
+rpm -Uvh dbtail-1.0.0-1.x86_64.rpm
+```
+
+安装内容：
+
+- `/usr/bin/dbtail`
+- `/etc/dbtail/dbtail.conf`
+- `/etc/dbtail/states/`
+- `/usr/lib/systemd/system/dbtail.service`
+- `/usr/share/dbtail/schema/`
+- `/usr/share/doc/dbtail/README.md`
+
+RPM 会将服务设置为开机自启，但不会使用占位配置立即启动。完成配置并创建 ClickHouse 表后执行：
+
+```bash
+systemctl start dbtail
+systemctl status dbtail
+journalctl -u dbtail -f
+```
+
+### 配置示例
+
+MySQL/Percona：
+
+```ini
+[Application Options]
+APIHost = http://user:password@clickhouse-host:8123/
+NumSenders = 2
+BatchFrequencyMs = 10000
+BatchSize = 1000
+
+[Required Options]
+ParserName = mysql
+LogFiles = /mysql/data3307/log/slow.log*
+Dataset = dbtail.mysql_slow_log_10_10_184_213_3309
+
+[Tail Options]
+ReadFrom = last
+Stop = false
+StateFile = /etc/dbtail/states/
+```
+
+PostgreSQL：
+
+```ini
+[Application Options]
+APIHost = http://user:password@clickhouse-host:8123/
+NumSenders = 4
+BatchFrequencyMs = 10000
+BatchSize = 1000
+
+[Required Options]
+ParserName = postgresql
+LogFiles = /postgresql/data5432/log/postgresql-*.log
+Dataset = dbtail.dw_pg_sql_logs_10_10_24_90_5432
+
+[PostgreSQL Parser Options]
+LogLinePrefix = %m [%p] [%Q]:[%c]:[%l] %u@%d [%r]: [%a/%i] [%v/%x]
+IgnoreQueryRegex = (?i)^\s*select\s+1\s*;?\s*$
+
+[Tail Options]
+ReadFrom = last
+Stop = false
+StateFile = /etc/dbtail/states/
+```
+
+`LogFiles` 使用文件系统 glob，不是正则表达式；`StateFile` 是目录，末尾不能添加 `*`。
+
+### ClickHouse 建表
+
+RPM 将建表文件安装到 `/usr/share/dbtail/schema/`：
+
+```bash
+clickhouse-client --multiline < /usr/share/dbtail/schema/db.sql
+clickhouse-client --multiline < /usr/share/dbtail/schema/mysql.sql
+# 或者
+clickhouse-client --multiline < /usr/share/dbtail/schema/postgresql.sql
+```
+
+执行前请根据实际环境检查表名和可选 TTL 语句。
