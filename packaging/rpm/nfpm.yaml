@@ -19,10 +19,6 @@ contents:
     dst: /usr/bin/dbtail
     file_info:
       mode: 0755
-  - src: ./scripts/check-dbtail-lag.sh
-    dst: /usr/bin/dbtail-check-lag
-    file_info:
-      mode: 0755
   - src: ./dbtail.conf
     dst: /etc/dbtail/dbtail.conf
     type: config|noreplace
