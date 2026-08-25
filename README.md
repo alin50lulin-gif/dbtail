@@ -130,6 +130,17 @@ systemctl status dbtail
 journalctl -u dbtail -f
 ```
 
+### Automated releases
+
+Pushing a semantic-version tag automatically builds the Linux amd64 binary and RPM, creates the SHA-256 file, creates the GitHub Release, and uploads both artifacts:
+
+```bash
+git tag -a v1.0.1 -m "DBtail v1.0.1"
+git push origin v1.0.1
+```
+
+To rebuild an existing tag, open GitHub **Actions**, select **Build and publish RPM**, choose **Run workflow**, and enter a tag such as `v1.0.0`. The workflow rebuilds the package from that tag and replaces matching Release assets.
+
 ### Configuration examples
 
 MySQL/Percona:
@@ -319,6 +330,17 @@ systemctl start dbtail
 systemctl status dbtail
 journalctl -u dbtail -f
 ```
+
+### 自动发布
+
+推送符合语义化版本格式的 tag 后，GitHub Actions 会自动编译 Linux amd64 二进制、生成 RPM 和 SHA-256 文件、创建 GitHub Release，并上传两个附件：
+
+```bash
+git tag -a v1.0.1 -m "DBtail v1.0.1"
+git push origin v1.0.1
+```
+
+如需重新构建已有 tag，可进入 GitHub 的 **Actions** 页面，选择 **Build and publish RPM**，点击 **Run workflow**，然后输入 `v1.0.0` 等已有 tag。工作流会基于该 tag 重新构建，并覆盖 Release 中的同名附件。
 
 ### 配置示例
 

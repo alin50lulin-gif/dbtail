@@ -1,0 +1,142 @@
+name: Build and publish RPM
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release-rpm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          PUSH_TAG: ${{ github.ref_name }}
+          MANUAL_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$MANUAL_TAG"
+          else
+            tag="$PUSH_TAG"
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.5"
+          cache: false
+
+      - name: Prepare GOPATH layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          gopath="$RUNNER_TEMP/dbtail-gopath"
+          mkdir -p \
+            "$gopath/src/github.com/alin50lulin-gif" \
+            "$gopath/src/github.com/honeycombio"
+          ln -s "$GITHUB_WORKSPACE" \
+            "$gopath/src/github.com/alin50lulin-gif/dbtail"
+          ln -s "$GITHUB_WORKSPACE" \
+            "$gopath/src/github.com/honeycombio/honeytail"
+          echo "DBTAIL_GOPATH=$gopath" >> "$GITHUB_ENV"
+
+      - name: Run focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$DBTAIL_GOPATH/src/github.com/alin50lulin-gif/dbtail"
+          GO111MODULE=off \
+          GOPATH="$DBTAIL_GOPATH:$HOME/go" \
+          go test ./tail ./parsers/postgresql
+
+      - name: Build Linux amd64 binary
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd "$DBTAIL_GOPATH/src/github.com/alin50lulin-gif/dbtail"
+          mkdir -p build
+          GO111MODULE=off \
+          GOPATH="$DBTAIL_GOPATH:$HOME/go" \
+          CGO_ENABLED=0 \
+          GOOS=linux \
+          GOARCH=amd64 \
+          go build \
+            -ldflags "-s -w -X main.BuildID=$RELEASE_TAG" \
+            -o build/dbtail-linux-amd64 .
+          file build/dbtail-linux-amd64
+
+      - name: Install pinned nFPM
+        shell: bash
+        env:
+          NFPM_VERSION: "2.47.0"
+          NFPM_SHA256: "0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/nfpm.tar.gz"
+          curl --fail --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          echo "$NFPM_SHA256  $archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/nfpm-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nfpm-bin" nfpm
+          chmod 0755 "$RUNNER_TEMP/nfpm-bin/nfpm"
+          echo "$RUNNER_TEMP/nfpm-bin" >> "$GITHUB_PATH"
+
+      - name: Build RPM and checksum
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          ./build-pkg.sh -v "$VERSION" -r 1 -t rpm
+          cd build/packages
+          sha256sum "dbtail-${VERSION}-1.x86_64.rpm" \
+            > "dbtail-${VERSION}-1.x86_64.rpm.sha256"
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          rpm="build/packages/dbtail-${VERSION}-1.x86_64.rpm"
+          checksum="${rpm}.sha256"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$rpm" "$checksum" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "$rpm" "$checksum" \
+              --verify-tag \
+              --title "DBtail $RELEASE_TAG" \
+              --generate-notes
+          fi
