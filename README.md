@@ -123,6 +123,14 @@ Create Table for MySQL slow logs:
 cat schema/mysql.sql | clickhouse-client --multiline
 ```
 
+For PostgreSQL logs using the extended prefix and `auto_explain`, configure:
+
+```ini
+[PostgreSQL Parser Options]
+LogLinePrefix = %m [%p] [%Q]:[%c]:[%l] %u@%d [%r]: [%a/%i] [%v/%x]
+IgnoreQueryRegex = (?i)^\s*select\s+1\s*;?\s*$
+```
+
 Once schema is prepared you can run binary from CLI with MySQL parser:
 ```
 dbtail --dataset='dbtail.mysql_slow_log_{ip}_{port}' --parser=mysql --file=/var/log/mysql/mysql-slow.log
