@@ -14,6 +14,72 @@ honeytail -> clicktail -> dbtail
 
 `dbtail` continues development with compatibility fixes for current log formats, bug fixes, and ongoing maintenance while preserving the original parsing and ClickHouse ingestion behavior.
 
+## 2026-08-24 / 2026-08-25 重要更新
+
+这两天的工作重点是解决 PostgreSQL 和 MySQL 高频日志采集中的解析、轮转、断点续读、文件句柄及部署问题。
+
+### PostgreSQL 模块
+
+已修复和增强：
+
+- 兼容新版 PostgreSQL 日志前缀，包括 `%Q` Query Identifier、十六进制 session ID，以及包含空格的 application name。
+- 支持 `auto_explain` 多行 JSON 执行计划，提取 SQL、Query ID、关联表和执行计划节点类型。
+- 支持 `postgresql-%Y-%m-%d_%H%M%S.log` 时间戳轮转；历史文件继续读取的同时立即发现并读取最新日志，不再因历史积压阻塞实时日志。
+- 修复 statefile 断点续读、文件读取完成后 offset 被错误归零、日志删除后遗留 statefile 等问题。
+- 修复日志读取完成后文件句柄未释放、已删除文件仍然占用磁盘空间的问题。
+- 增加 `IgnoreQueryRegex`，并针对 `auto_explain` JSON 增加快速过滤路径，可过滤 `SELECT 1`，减少完整 JSON 解析、网络发送及 ClickHouse 存储开销。
+- 更新 PostgreSQL ClickHouse 表结构，增加执行计划字段，并提供 `query_text`、`event_time` 等兼容别名。
+- PostgreSQL 表提供可选的一个月 TTL 示例。
+
+已在实际日志环境验证：
+
+- 时间戳轮转产生的新日志可以自动发现。
+- 多个历史文件与最新文件可以并行读取。
+- dbtail 重启后从 statefile 保存的 inode 和 offset 继续读取。
+- 文件读取完成后 offset 等于文件大小且不会归零。
+- 历史日志读取完成后句柄正常释放。
+- 日志被清理后，对应的过期 statefile 会自动清理，无需重启 dbtail。
+- `auto_explain` JSON plan 能够正常解析并写入 ClickHouse。
+- 启用过滤后，`SELECT 1` 停止入库，其他 SQL 继续写入。
+
+### MySQL 模块
+
+已修复和增强：
+
+- 更新慢日志解析，兼容常见 MySQL、MariaDB 和 Percona Server 字段，包括扩展慢日志统计字段。
+- MySQL ClickHouse 表名统一为 `mysql_slow_log_{ip}_{port}`。
+- 支持 Percona Server 的编号慢日志轮转，例如 `slow.log.000001`、`slow.log.000002`；运行期间会动态发现新的编号文件。
+- MySQL 表提供可选的六个月 TTL 示例。
+
+已在 Percona Server 8.0.40-31 环境验证：
+
+- MySQL 慢日志能够正常解析并写入 ClickHouse。
+- `slow.log.000001` 到后续编号文件可以连续轮转；编号越大、时间越新，编号最大的文件是当前活动日志。
+- dbtail 重启后能够根据每个文件的 statefile 断点续读。
+- 历史文件读取完成后能够释放文件句柄。
+
+Percona 编号轮转应使用文件系统 glob：
+
+```ini
+LogFiles = /mysql/data3307/log/slow.log*
+StateFile = /etc/dbtail/states/
+```
+
+不要写成正则表达式形式的 `slow\.log\*`，也不要只监听旧的 `slow.log`。标准 MySQL、外部 `logrotate` 与 Percona 内置编号轮转的行为可能不同，应以 `@@slow_query_log_file` 和实际持续增长的文件为准。
+
+### 公共模块与部署
+
+已修复和增强：
+
+- 支持运行期间动态发现 glob 新匹配的日志文件。
+- 支持多日志文件并行 tail，避免单个历史大文件阻塞最新日志。
+- 完善 statefile 自动创建、断点续读、完成位置保存和过期文件清理。
+- 修复文件关闭与 offset 保存之间的并发问题。
+- 增加配置校验，能够识别 `StateFile = .../*`、转义错误的日志 glob 和 Markdown 格式的 `APIHost`。
+- 支持自动创建 statefile 目录，并改进 `dbtail.conf` 中 MySQL、PostgreSQL 和轮转配置说明。
+- 支持 Linux amd64 静态二进制及 systemd 部署。
+- 增加 RPM 构建支持；RPM 包包含二进制、配置文件、systemd unit、ClickHouse schema 和安装 README，并使用配置文件 `noreplace` 策略保护现场配置。
+
 ## Supported Parsers
 
 `dbtail` supports reading files from `STDIN` as well as from a file on disk.
